@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-
+import { typesPublicRouter } from "./routes/types-public.routes";
 import { authRouter } from "./routes/auth.routes";
 import { demandesRouter } from "./routes/demandes.routes";
 import { adminRouter } from "./routes/admin.routes";
@@ -10,6 +10,7 @@ import { adminRouter } from "./routes/admin.routes";
 const app = express();
 
 app.use(helmet());
+app.use("/api/types-autorisation", typesPublicRouter);
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN || "*",
