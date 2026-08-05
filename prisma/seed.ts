@@ -7,14 +7,15 @@ const prisma = new PrismaClient();
 async function main() {
   // --- Super administrateur initial ---
   const emailAdmin = "admin@arsn.sn";
-  const motDePasseAdmin = "ChangeMoiImmediatement!123";
+  const motDePasseAdmin = "Adminarsn2026";
 
   const adminExistant = await prisma.user.findUnique({ where: { email: emailAdmin } });
+  const motDePasseHash = await bcrypt.hash(motDePasseAdmin, 12);
   if (!adminExistant) {
     await prisma.user.create({
       data: {
         email: emailAdmin,
-        motDePasseHash: await bcrypt.hash(motDePasseAdmin, 12),
+        motDePasseHash,
         nom: "Administrateur",
         prenom: "Super",
         role: "SUPER_ADMIN",
@@ -22,6 +23,16 @@ async function main() {
     });
     console.log(`✅ Super administrateur créé : ${emailAdmin} / ${motDePasseAdmin}`);
     console.log("⚠️  Change ce mot de passe dès la première connexion.");
+  } else {
+    await prisma.user.update({
+      where: { email: emailAdmin },
+      data: {
+        motDePasseHash,
+        actif: true,
+        role: "SUPER_ADMIN",
+      },
+    });
+    console.log(`✅ Super administrateur existant mis à jour : ${emailAdmin} / ${motDePasseAdmin}`);
   }
 
   // --- Types d'autorisation de base (repris du site actuel) ---

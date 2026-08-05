@@ -47,7 +47,8 @@ authRouter.post("/register", async (req, res) => {
   await enregistrerAudit({ userId: user.id, action: "CREATION_COMPTE", entite: "User", entiteId: user.id });
 
   const token = signToken({ userId: user.id, role: user.role });
-  res.status(201).json({ token, user: { id: user.id, email: user.email, role: user.role } });
+  const { motDePasseHash: _omit, ...userSansMotDePasse } = user;
+  res.status(201).json({ token, user: userSansMotDePasse });
 });
 
 const connexionSchema = z.object({

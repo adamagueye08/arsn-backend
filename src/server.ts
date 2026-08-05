@@ -12,16 +12,32 @@ const app = express();
 
 app.use(helmet());
 
-// En développement : autorise n'importe quelle origine locale (localhost:xxxx),
-// peu importe le port choisi par Vite. En production : uniquement CORS_ORIGIN.
-const corsOrigin = process.env.NODE_ENV === "development" ? true : process.env.CORS_ORIGIN || "*";
+// En développement ou sans NODE_ENV défini : autorise toutes les origines locales.
+// En production : origine(s) autorisée(s) via CORS_ORIGIN.
+const isDevelopment = process.env.NODE_ENV !== "production";
+const allowedOrigins = (process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
-app.use(
-  cors({
-    origin: corsOrigin,
-    credentials: true,
-  })
-);
+const corsOptions = isDevelopment
+  ? { origin: true, credentials: true }
+  : {
+      origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error(`Origine CORS non autorisée : ${origin}`));
+        }
+      },
+      credentials: true,
+    };
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/api/health", (_req, res) => res.json({ statut: "ok" }));
