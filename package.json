@@ -2,11 +2,11 @@
   "name": "arsn-backend",
   "version": "0.1.0",
   "description": "Backend ARSN - gestion des demandes d'autorisation (Node.js + TypeScript + PostgreSQL/Prisma)",
-  "main": "dist/server.js",
+  "main": "dist/src/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "start:prod": "npm run deploy && npm start",
     "deploy": "prisma migrate deploy && tsx prisma/seed.ts",
     "prisma:generate": "prisma generate",

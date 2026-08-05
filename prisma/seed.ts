@@ -1,7 +1,6 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { fileURLToPath } from "url";
 
 const prisma = new PrismaClient();
 
@@ -57,7 +56,7 @@ export async function seedDatabase() {
           actif: true,
         },
       });
-      // Workflow par défaut à 3 étapes, modifiable ensuite via l'admin
+      // Workflow par défaut à 2 étapes (Instructeur -> Signataire)
       await prisma.workflowEtape.createMany({
         data: [
           { typeAutorisationId: type.id, ordre: 1, nom: "Analyse technique", roleResponsable: "INSTRUCTEUR", delaiJours: 10 },
@@ -73,9 +72,10 @@ async function main() {
   await seedDatabase();
 }
 
-const __filename = fileURLToPath(import.meta.url);
-
-if (process.argv[1] === __filename) {
+// Équivalent CommonJS de "exécuter seulement si ce fichier est lancé directement"
+// (l'ancienne version utilisait `import.meta.url`, une syntaxe ESM incompatible
+// avec la compilation "module": "commonjs" du projet — ça faisait planter le build).
+if (require.main === module) {
   main()
     .catch((e) => {
       console.error(e);
