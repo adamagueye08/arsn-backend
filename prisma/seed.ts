@@ -1,10 +1,11 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { fileURLToPath } from "url";
 
 const prisma = new PrismaClient();
 
-async function main() {
+export async function seedDatabase() {
   // --- Super administrateur initial ---
   const emailAdmin = "admin@arsn.sn";
   const motDePasseAdmin = "Adminarsn2026";
@@ -32,7 +33,7 @@ async function main() {
         role: "SUPER_ADMIN",
       },
     });
-    console.log(`✅ Super administrateur existant mis à jour : ${emailAdmin} / ${motDePasseAdmin}`);
+    console.log(`✅ Super administrateur existant vérifié / mis à jour : ${emailAdmin}`);
   }
 
   // --- Types d'autorisation de base (repris du site actuel) ---
@@ -50,9 +51,10 @@ async function main() {
         data: {
           nom: t.nom,
           description: t.description,
-          formulaireSchema: { champs: [] }, // à définir précisément avec l'ARSN
+          formulaireSchema: { champs: [] },
           piecesRequises: [],
           dureeValiditeMois: 12,
+          actif: true,
         },
       });
       // Workflow par défaut à 3 étapes, modifiable ensuite via l'admin
@@ -67,11 +69,19 @@ async function main() {
   }
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+async function main() {
+  await seedDatabase();
+}
+
+const __filename = fileURLToPath(import.meta.url);
+
+if (process.argv[1] === __filename) {
+  main()
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

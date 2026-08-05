@@ -1,8 +1,9 @@
-import "dotenv/config";
+﻿import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 
+import { seedDatabase } from "../prisma/seed";
 import { authRouter } from "./routes/auth.routes";
 import { demandesRouter } from "./routes/demandes.routes";
 import { adminRouter } from "./routes/admin.routes";
@@ -54,6 +55,21 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 const PORT = Number(process.env.PORT) || 4000;
-app.listen(PORT, () => {
-  console.log(`✅ API ARSN démarrée sur http://localhost:${PORT}`);
-});
+
+async function startServer() {
+  if (process.env.NODE_ENV === "production") {
+    console.log("🔧 Production startup detected: seeding database...");
+    try {
+      await seedDatabase();
+    } catch (error) {
+      console.error("❌ Database seed failed:", error);
+      process.exit(1);
+    }
+  }
+
+  app.listen(PORT, () => {
+    console.log("✅ API ARSN démarrée sur http://localhost:" + PORT);
+  });
+}
+
+startServer();
