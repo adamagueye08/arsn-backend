@@ -1,8 +1,10 @@
 import { Router } from "express";
+import { z } from "zod";
 import { prisma } from "../prisma";
 import { authenticate } from "../middleware/authenticate";
 import { authorize, ROLES_INSTRUCTION, ROLES_ADMIN_TOUS } from "../middleware/authorize";
 import { enregistrerAudit } from "../services/audit";
+import { hashPassword } from "../utils/auth";
 
 export const adminRouter = Router();
 adminRouter.use(authenticate, authorize(ROLES_ADMIN_TOUS));
@@ -36,7 +38,7 @@ adminRouter.get("/demandes", async (req, res) => {
 /**
  * Affecter un dossier à un instructeur / le réaffecter
  */
-adminRouter.post("/demandes/:id/affecter", authorize(["SUPER_ADMIN", "CHEF_SERVICE", "ADMIN_FONCTIONNEL"]), async (req, res) => {
+adminRouter.post("/demandes/:id/affecter", authorize(["SUPER_ADMIN"]), async (req, res) => {
   const { instructeurId } = req.body as { instructeurId: string };
   const demande = await prisma.demande.update({
     where: { id: req.params.id },
@@ -126,12 +128,48 @@ adminRouter.get("/dashboard", async (req, res) => {
 /**
  * 2. Gestion des utilisateurs
  */
-adminRouter.get("/users", authorize(["SUPER_ADMIN", "ADMIN_FONCTIONNEL"]), async (req, res) => {
+adminRouter.get("/users", authorize(["SUPER_ADMIN"]), async (req, res) => {
   const users = await prisma.user.findMany({ orderBy: { createdAt: "desc" } });
   res.json(users.map((u) => {
     const { motDePasseHash, ...userSansMotDePasse } = u;
     return userSansMotDePasse;
   }));
+});
+
+/**
+ * Créer un compte agent (Instructeur ou Signataire) — le Super Admin
+ * crée lui-même les comptes du personnel ARSN, contrairement aux
+ * demandeurs qui s'inscrivent librement.
+ */
+const creerAgentSchema = z.object({
+  email: z.string().email(),
+  motDePasse: z.string().min(8),
+  nom: z.string().min(1),
+  prenom: z.string().min(1),
+  role: z.enum(["SUPER_ADMIN", "INSTRUCTEUR", "SIGNATAIRE"]),
+});
+
+adminRouter.post("/users", authorize(["SUPER_ADMIN"]), async (req, res) => {
+  const parsed = creerAgentSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ erreur: parsed.error.flatten() });
+
+  const existant = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  if (existant) return res.status(409).json({ erreur: "Un compte existe déjà avec cet email." });
+
+  const motDePasseHash = await hashPassword(parsed.data.motDePasse);
+  const user = await prisma.user.create({
+    data: {
+      email: parsed.data.email,
+      motDePasseHash,
+      nom: parsed.data.nom,
+      prenom: parsed.data.prenom,
+      role: parsed.data.role,
+    },
+  });
+
+  await enregistrerAudit({ userId: req.user!.userId, action: "CREATION_UTILISATEUR", entite: "User", entiteId: user.id, detail: { role: user.role } });
+  const { motDePasseHash: _omit, ...userSansMotDePasse } = user;
+  res.status(201).json(userSansMotDePasse);
 });
 
 adminRouter.patch("/users/:id", authorize(["SUPER_ADMIN"]), async (req, res) => {
@@ -143,6 +181,34 @@ adminRouter.patch("/users/:id", authorize(["SUPER_ADMIN"]), async (req, res) => 
   await enregistrerAudit({ userId: req.user!.userId, action: "MODIFICATION_UTILISATEUR", entite: "User", entiteId: user.id, detail: req.body });
   const { motDePasseHash, ...userSansMotDePasse } = user;
   res.json(userSansMotDePasse);
+});
+
+/**
+ * Réinitialiser le mot de passe d'un utilisateur (le Super Admin
+ * choisit un mot de passe temporaire à communiquer à l'agent).
+ */
+adminRouter.post("/users/:id/reinitialiser-mot-de-passe", authorize(["SUPER_ADMIN"]), async (req, res) => {
+  const { nouveauMotDePasse } = req.body as { nouveauMotDePasse: string };
+  if (!nouveauMotDePasse || nouveauMotDePasse.length < 8) {
+    return res.status(400).json({ erreur: "Le mot de passe doit contenir au moins 8 caractères." });
+  }
+  const motDePasseHash = await hashPassword(nouveauMotDePasse);
+  const user = await prisma.user.update({ where: { id: req.params.id }, data: { motDePasseHash } });
+  await enregistrerAudit({ userId: req.user!.userId, action: "REINITIALISATION_MOT_DE_PASSE", entite: "User", entiteId: user.id });
+  res.json({ statut: "ok" });
+});
+
+/**
+ * Supprimer un compte. On empêche la suppression de son propre compte
+ * pour éviter de se retrouver bloqué hors de la plateforme.
+ */
+adminRouter.delete("/users/:id", authorize(["SUPER_ADMIN"]), async (req, res) => {
+  if (req.params.id === req.user!.userId) {
+    return res.status(400).json({ erreur: "Impossible de supprimer son propre compte." });
+  }
+  await prisma.user.delete({ where: { id: req.params.id } });
+  await enregistrerAudit({ userId: req.user!.userId, action: "SUPPRESSION_UTILISATEUR", entite: "User", entiteId: req.params.id });
+  res.json({ statut: "ok" });
 });
 
 /**
@@ -160,12 +226,12 @@ adminRouter.get("/audit", authorize(["SUPER_ADMIN"]), async (req, res) => {
 /**
  * 3. Gestion des types d'autorisation (paramétrage)
  */
-adminRouter.get("/types-autorisation", authorize(["SUPER_ADMIN", "ADMIN_FONCTIONNEL"]), async (req, res) => {
+adminRouter.get("/types-autorisation", authorize(["SUPER_ADMIN"]), async (req, res) => {
   const types = await prisma.typeAutorisation.findMany({ include: { etapesWorkflow: true } });
   res.json(types);
 });
 
-adminRouter.post("/types-autorisation", authorize(["SUPER_ADMIN", "ADMIN_FONCTIONNEL"]), async (req, res) => {
+adminRouter.post("/types-autorisation", authorize(["SUPER_ADMIN"]), async (req, res) => {
   const type = await prisma.typeAutorisation.create({ data: req.body });
   await enregistrerAudit({ userId: req.user!.userId, action: "CREATION_TYPE_AUTORISATION", entite: "TypeAutorisation", entiteId: type.id });
   res.status(201).json(type);

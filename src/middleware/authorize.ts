@@ -3,7 +3,7 @@ import { Role } from "@prisma/client";
 
 /**
  * Autorise l'accès uniquement aux rôles listés.
- * Exemple : router.get("/admin/stats", authenticate, authorize(["SUPER_ADMIN","ADMIN_FONCTIONNEL"]), handler)
+ * Exemple : router.get("/admin/stats", authenticate, authorize(["SUPER_ADMIN"]), handler)
  */
 export function authorize(rolesAutorises: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -18,13 +18,6 @@ export function authorize(rolesAutorises: Role[]) {
 }
 
 // Rôles regroupés utilisés dans plusieurs routes admin
-export const ROLES_ADMIN_TOUS: Role[] = [
-  "SUPER_ADMIN",
-  "ADMIN_FONCTIONNEL",
-  "AGENT_INSTRUCTEUR",
-  "CHEF_SERVICE",
-  "DIRECTEUR",
-  "SIGNATAIRE",
-];
-export const ROLES_INSTRUCTION: Role[] = ["AGENT_INSTRUCTEUR", "CHEF_SERVICE", "DIRECTEUR", "SUPER_ADMIN"];
-export const ROLES_PARAMETRAGE: Role[] = ["SUPER_ADMIN", "ADMIN_FONCTIONNEL"];
+export const ROLES_ADMIN_TOUS: Role[] = ["SUPER_ADMIN", "INSTRUCTEUR", "SIGNATAIRE"];
+export const ROLES_INSTRUCTION: Role[] = ["SUPER_ADMIN", "INSTRUCTEUR", "SIGNATAIRE"];
+export const ROLES_PARAMETRAGE: Role[] = ["SUPER_ADMIN"];

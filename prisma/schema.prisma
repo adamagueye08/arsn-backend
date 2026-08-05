@@ -16,13 +16,10 @@ datasource db {
 // Rôles applicatifs (cf. structure des rôles recommandée)
 // ------------------------------------------------------------
 enum Role {
-  DEMANDEUR            // client externe (particulier, entreprise, hôpital, etc.)
-  SUPER_ADMIN          // contrôle total de la plateforme
-  ADMIN_FONCTIONNEL    // paramétrage autorisations / formulaires / workflows
-  AGENT_INSTRUCTEUR    // analyse technique des demandes
-  CHEF_SERVICE         // validation des dossiers, supervision des instructeurs
-  DIRECTEUR            // validation finale selon délégations
-  SIGNATAIRE           // signature et délivrance des autorisations
+  DEMANDEUR       // client externe (particulier, entreprise, hôpital, etc.)
+  SUPER_ADMIN     // contrôle total de la plateforme (paramétrage + traitement + signature)
+  INSTRUCTEUR     // analyse technique et validation intermédiaire des demandes
+  SIGNATAIRE      // validation finale, signature et délivrance des autorisations
 }
 
 enum TypeProfil {

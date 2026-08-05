@@ -47,9 +47,8 @@ async function main() {
       // Workflow par défaut à 3 étapes, modifiable ensuite via l'admin
       await prisma.workflowEtape.createMany({
         data: [
-          { typeAutorisationId: type.id, ordre: 1, nom: "Analyse technique", roleResponsable: "AGENT_INSTRUCTEUR", delaiJours: 10 },
-          { typeAutorisationId: type.id, ordre: 2, nom: "Validation hiérarchique", roleResponsable: "CHEF_SERVICE", delaiJours: 5 },
-          { typeAutorisationId: type.id, ordre: 3, nom: "Signature et délivrance", roleResponsable: "SIGNATAIRE", delaiJours: 3 },
+          { typeAutorisationId: type.id, ordre: 1, nom: "Analyse technique", roleResponsable: "INSTRUCTEUR", delaiJours: 10 },
+          { typeAutorisationId: type.id, ordre: 2, nom: "Signature et délivrance", roleResponsable: "SIGNATAIRE", delaiJours: 3 },
         ],
       });
       console.log(`✅ Type d'autorisation créé : ${t.nom}`);
