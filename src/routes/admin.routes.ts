@@ -106,14 +106,37 @@ adminRouter.post("/demandes/:id/retourner", authorize(ROLES_INSTRUCTION), async 
  * 1. Tableau de bord - statistiques
  */
 adminRouter.get("/dashboard", async (req, res) => {
-  const [recues, enAttente, approuvees, rejetees, expirees, parType] = await Promise.all([
+  const [recues, enAttente, approuvees, rejetees, expirees, parTypeRaw, types, toutesDemandes] = await Promise.all([
     prisma.demande.count(),
     prisma.demande.count({ where: { statut: { in: ["SOUMISE", "EN_COURS", "COMPLEMENT_REQUIS"] } } }),
     prisma.demande.count({ where: { statut: "APPROUVEE" } }),
     prisma.demande.count({ where: { statut: "REJETEE" } }),
     prisma.demande.count({ where: { statut: "EXPIREE" } }),
     prisma.demande.groupBy({ by: ["typeAutorisationId"], _count: true }),
+    prisma.typeAutorisation.findMany({ select: { id: true, nom: true } }),
+    prisma.demande.findMany({ select: { createdAt: true } }),
   ]);
+
+  // Associe chaque type d'autorisation à son nom, pour affichage direct sans requête supplémentaire côté client.
+  const nomParTypeId = Object.fromEntries(types.map((t) => [t.id, t.nom]));
+  const parType = parTypeRaw.map((g) => ({
+    typeAutorisationId: g.typeAutorisationId,
+    nom: nomParTypeId[g.typeAutorisationId] ?? "Inconnu",
+    total: g._count,
+  }));
+
+  // Regroupe les demandes par mois sur les 6 derniers mois (pour le graphique mensuel).
+  const maintenant = new Date();
+  const parMois: { mois: string; total: number }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(maintenant.getFullYear(), maintenant.getMonth() - i, 1);
+    const label = d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+    const total = toutesDemandes.filter((demande) => {
+      const dd = new Date(demande.createdAt);
+      return dd.getFullYear() === d.getFullYear() && dd.getMonth() === d.getMonth();
+    }).length;
+    parMois.push({ mois: label, total });
+  }
 
   res.json({
     demandesRecues: recues,
@@ -122,6 +145,7 @@ adminRouter.get("/dashboard", async (req, res) => {
     demandesRejetees: rejetees,
     demandesExpirees: expirees,
     parType,
+    parMois,
   });
 });
 
@@ -232,7 +256,27 @@ adminRouter.get("/types-autorisation", authorize(["SUPER_ADMIN"]), async (req, r
 });
 
 adminRouter.post("/types-autorisation", authorize(["SUPER_ADMIN"]), async (req, res) => {
-  const type = await prisma.typeAutorisation.create({ data: req.body });
+  const type = await prisma.typeAutorisation.create({
+    data: {
+      nom: req.body.nom,
+      description: req.body.description,
+      formulaireSchema: req.body.formulaireSchema ?? { champs: [] },
+      piecesRequises: req.body.piecesRequises ?? [],
+      dureeValiditeMois: req.body.dureeValiditeMois ?? 12,
+      frais: req.body.frais,
+      actif: true,
+    },
+  });
   await enregistrerAudit({ userId: req.user!.userId, action: "CREATION_TYPE_AUTORISATION", entite: "TypeAutorisation", entiteId: type.id });
   res.status(201).json(type);
+});
+
+adminRouter.patch("/types-autorisation/:id", authorize(["SUPER_ADMIN"]), async (req, res) => {
+  const { nom, description, dureeValiditeMois, frais, actif } = req.body;
+  const type = await prisma.typeAutorisation.update({
+    where: { id: req.params.id },
+    data: { nom, description, dureeValiditeMois, frais, actif },
+  });
+  await enregistrerAudit({ userId: req.user!.userId, action: "MODIFICATION_TYPE_AUTORISATION", entite: "TypeAutorisation", entiteId: type.id, detail: req.body });
+  res.json(type);
 });
