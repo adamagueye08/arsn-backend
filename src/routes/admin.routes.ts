@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { authenticate } from "../middleware/authenticate";
-import { authorize, ROLES_INSTRUCTION, ROLES_ADMIN_TOUS } from "../middleware/authorize";
+import { authorize, ROLES_ADMIN_TOUS } from "../middleware/authorize";
 import { enregistrerAudit } from "../services/audit";
 import { hashPassword } from "../utils/auth";
 
@@ -52,18 +52,28 @@ adminRouter.post("/demandes/:id/affecter", authorize(["SUPER_ADMIN"]), async (re
 });
 
 /**
- * Valider un dossier (étape intermédiaire ou décision finale selon le rôle)
+ * États finaux : plus aucune action de traitement n'est possible dessus.
  */
-adminRouter.post("/demandes/:id/valider", authorize(ROLES_INSTRUCTION), async (req, res) => {
+const STATUTS_FINAUX = ["APPROUVEE", "REJETEE"];
+
+/**
+ * Valider un dossier — décision finale et unique, prise par l'admin.
+ * (Historiquement cette route gérait aussi une "étape intermédiaire"
+ * pilotée par un flag envoyé depuis le client, ce qui permettait à
+ * n'importe quel rôle d'approuver définitivement un dossier. Le
+ * workflow est maintenant à une seule étape : un rôle admin unique
+ * traite le dossier de bout en bout, donc "valider" = approbation.)
+ */
+adminRouter.post("/demandes/:id/valider", authorize(["SUPER_ADMIN"]), async (req, res) => {
   const demande = await prisma.demande.findUnique({ where: { id: req.params.id } });
   if (!demande) return res.status(404).json({ erreur: "Demande introuvable." });
+  if (STATUTS_FINAUX.includes(demande.statut)) {
+    return res.status(409).json({ erreur: "Cette demande est déjà dans un état final." });
+  }
 
-  const estDecisionFinale = req.body.decisionFinale === true; // ex: cochée par le Directeur/Signataire
   const updated = await prisma.demande.update({
     where: { id: demande.id },
-    data: estDecisionFinale
-      ? { statut: "APPROUVEE", dateDecision: new Date() }
-      : { etapeActuelle: req.body.etapeSuivante ?? demande.etapeActuelle },
+    data: { statut: "APPROUVEE", dateDecision: new Date() },
   });
 
   await prisma.historiqueDemande.create({
@@ -76,8 +86,14 @@ adminRouter.post("/demandes/:id/valider", authorize(ROLES_INSTRUCTION), async (r
 /**
  * Rejeter un dossier
  */
-adminRouter.post("/demandes/:id/rejeter", authorize(ROLES_INSTRUCTION), async (req, res) => {
-  const demande = await prisma.demande.update({
+adminRouter.post("/demandes/:id/rejeter", authorize(["SUPER_ADMIN"]), async (req, res) => {
+  const demande = await prisma.demande.findUnique({ where: { id: req.params.id } });
+  if (!demande) return res.status(404).json({ erreur: "Demande introuvable." });
+  if (STATUTS_FINAUX.includes(demande.statut)) {
+    return res.status(409).json({ erreur: "Cette demande est déjà dans un état final." });
+  }
+
+  const updated = await prisma.demande.update({
     where: { id: req.params.id },
     data: { statut: "REJETEE", dateDecision: new Date() },
   });
@@ -85,21 +101,27 @@ adminRouter.post("/demandes/:id/rejeter", authorize(ROLES_INSTRUCTION), async (r
     data: { demandeId: demande.id, parUserId: req.user!.userId, action: "REJET", commentaire: req.body.motif },
   });
   await enregistrerAudit({ userId: req.user!.userId, action: "REJET_DEMANDE", entite: "Demande", entiteId: demande.id });
-  res.json(demande);
+  res.json(updated);
 });
 
 /**
  * Retourner un dossier au demandeur (demande de complément)
  */
-adminRouter.post("/demandes/:id/retourner", authorize(ROLES_INSTRUCTION), async (req, res) => {
-  const demande = await prisma.demande.update({
+adminRouter.post("/demandes/:id/retourner", authorize(["SUPER_ADMIN"]), async (req, res) => {
+  const demande = await prisma.demande.findUnique({ where: { id: req.params.id } });
+  if (!demande) return res.status(404).json({ erreur: "Demande introuvable." });
+  if (STATUTS_FINAUX.includes(demande.statut)) {
+    return res.status(409).json({ erreur: "Cette demande est déjà dans un état final." });
+  }
+
+  const updated = await prisma.demande.update({
     where: { id: req.params.id },
     data: { statut: "COMPLEMENT_REQUIS" },
   });
   await prisma.historiqueDemande.create({
     data: { demandeId: demande.id, parUserId: req.user!.userId, action: "DEMANDE_COMPLEMENT", commentaire: req.body.commentaire },
   });
-  res.json(demande);
+  res.json(updated);
 });
 
 /**
