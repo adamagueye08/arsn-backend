@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import multer from "multer";
 import { prisma } from "../prisma";
 import { authenticate } from "../middleware/authenticate";
 import { authorize, ROLES_ADMIN_TOUS } from "../middleware/authorize";
@@ -8,6 +9,11 @@ import { hashPassword } from "../utils/auth";
 
 export const adminRouter = Router();
 adminRouter.use(authenticate, authorize(ROLES_ADMIN_TOUS));
+
+const uploadAttestation = multer({
+  dest: process.env.STORAGE_LOCAL_PATH || "./uploads",
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
 
 /**
  * 5. Gestion des demandes (côté admin)
@@ -33,6 +39,25 @@ adminRouter.get("/demandes", async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
   res.json(demandes);
+});
+
+/**
+ * Détail complet d'une demande (formulaire rempli, pièces, historique)
+ */
+adminRouter.get("/demandes/:id", async (req, res) => {
+  const demande = await prisma.demande.findUnique({
+    where: { id: req.params.id },
+    include: {
+      demandeur: true,
+      typeAutorisation: true,
+      instructeur: true,
+      pieces: true,
+      historique: { orderBy: { createdAt: "asc" }, include: { parUser: true } },
+      autorisation: true,
+    },
+  });
+  if (!demande) return res.status(404).json({ erreur: "Demande introuvable." });
+  res.json(demande);
 });
 
 /**
@@ -82,6 +107,44 @@ adminRouter.post("/demandes/:id/valider", authorize(["SUPER_ADMIN"]), async (req
   await enregistrerAudit({ userId: req.user!.userId, action: "VALIDATION_DEMANDE", entite: "Demande", entiteId: demande.id });
   res.json(updated);
 });
+
+/**
+ * Uploader le document d'attestation d'autorisation délivrée —
+ * uniquement sur un dossier déjà Approuvé. Le demandeur pourra ensuite
+ * la télécharger via GET /demandes/:id/attestation.
+ */
+adminRouter.post(
+  "/demandes/:id/attestation",
+  authorize(["SUPER_ADMIN"]),
+  uploadAttestation.single("fichier"),
+  async (req, res) => {
+    const demande = await prisma.demande.findUnique({ where: { id: req.params.id } });
+    if (!demande) return res.status(404).json({ erreur: "Demande introuvable." });
+    if (demande.statut !== "APPROUVEE") {
+      return res.status(409).json({ erreur: "L'attestation ne peut être déposée que sur un dossier approuvé." });
+    }
+    const fichier = req.file as Express.Multer.File | undefined;
+    if (!fichier) return res.status(400).json({ erreur: "Aucun fichier reçu." });
+
+    const autorisation = await prisma.autorisationDelivree.upsert({
+      where: { demandeId: demande.id },
+      create: {
+        demandeId: demande.id,
+        pdfCheminStockage: fichier.path,
+        pdfNomFichier: fichier.originalname,
+        signeParId: req.user!.userId,
+      },
+      update: {
+        pdfCheminStockage: fichier.path,
+        pdfNomFichier: fichier.originalname,
+        signeParId: req.user!.userId,
+        dateSignature: new Date(),
+      },
+    });
+    await enregistrerAudit({ userId: req.user!.userId, action: "UPLOAD_ATTESTATION", entite: "Demande", entiteId: demande.id });
+    res.status(201).json(autorisation);
+  }
+);
 
 /**
  * Rejeter un dossier

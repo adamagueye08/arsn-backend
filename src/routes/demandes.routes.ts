@@ -218,6 +218,41 @@ demandesRouter.post("/:id/renouveler", async (req, res) => {
 });
 
 /**
+ * Télécharger une pièce justificative — propriétaire du dossier ou agent uniquement.
+ * ⚠️ Le stockage est local au serveur (disque éphémère sur Render) : les
+ * fichiers ne survivent pas à un redéploiement tant qu'un stockage
+ * persistant (S3 ou équivalent) n'est pas branché.
+ */
+demandesRouter.get("/:id/pieces/:pieceId/telecharger", async (req, res) => {
+  const demande = await prisma.demande.findUnique({ where: { id: req.params.id } });
+  if (!demande) return res.status(404).json({ erreur: "Demande introuvable." });
+  const estProprietaire = demande.demandeurId === req.user!.userId;
+  const estAgent = req.user!.role !== "DEMANDEUR";
+  if (!estProprietaire && !estAgent) return res.status(403).json({ erreur: "Accès refusé." });
+
+  const piece = await prisma.pieceJustificative.findUnique({ where: { id: req.params.pieceId } });
+  if (!piece || piece.demandeId !== demande.id) return res.status(404).json({ erreur: "Pièce introuvable." });
+
+  res.download(path.resolve(piece.cheminStockage), piece.nomFichier);
+});
+
+/**
+ * Télécharger le document d'attestation d'autorisation délivrée.
+ */
+demandesRouter.get("/:id/attestation", async (req, res) => {
+  const demande = await prisma.demande.findUnique({ where: { id: req.params.id } });
+  if (!demande) return res.status(404).json({ erreur: "Demande introuvable." });
+  const estProprietaire = demande.demandeurId === req.user!.userId;
+  const estAgent = req.user!.role !== "DEMANDEUR";
+  if (!estProprietaire && !estAgent) return res.status(403).json({ erreur: "Accès refusé." });
+
+  const autorisation = await prisma.autorisationDelivree.findUnique({ where: { demandeId: demande.id } });
+  if (!autorisation) return res.status(404).json({ erreur: "Aucune attestation disponible pour ce dossier." });
+
+  res.download(path.resolve(autorisation.pdfCheminStockage), autorisation.pdfNomFichier || "attestation.pdf");
+});
+
+/**
  * 14. Échanger avec l'instructeur via une messagerie intégrée
  * (implémentation simple : messages stockés dans l'historique de la demande)
  */
