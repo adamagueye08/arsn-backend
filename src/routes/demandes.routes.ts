@@ -70,6 +70,24 @@ demandesRouter.put("/:id", async (req, res) => {
 });
 
 /**
+ * 3bis. Supprimer une demande — uniquement par son propriétaire, et
+ * uniquement tant qu'elle n'a jamais été soumise (BROUILLON).
+ */
+demandesRouter.delete("/:id", async (req, res) => {
+  const demande = await prisma.demande.findUnique({ where: { id: req.params.id } });
+  if (!demande) return res.status(404).json({ erreur: "Demande introuvable." });
+  if (demande.demandeurId !== req.user!.userId) return res.status(403).json({ erreur: "Accès refusé." });
+  if (demande.statut !== "BROUILLON") {
+    return res.status(409).json({ erreur: "Seul un brouillon non soumis peut être supprimé." });
+  }
+
+  await prisma.pieceJustificative.deleteMany({ where: { demandeId: demande.id } });
+  await prisma.historiqueDemande.deleteMany({ where: { demandeId: demande.id } });
+  await prisma.demande.delete({ where: { id: demande.id } });
+  res.status(204).send();
+});
+
+/**
  * 4. Joindre des pièces justificatives
  */
 demandesRouter.post("/:id/pieces", upload.array("fichiers", 10), async (req, res) => {

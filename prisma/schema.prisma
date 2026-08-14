@@ -221,7 +221,8 @@ model AutorisationDelivree {
   demandeId      String    @unique
   demande        Demande   @relation(fields: [demandeId], references: [id])
   pdfCheminStockage String
-  qrCodeValeur   String    // valeur encodée / URL de vérification publique
+  pdfNomFichier  String?
+  qrCodeValeur   String?   // valeur encodée / URL de vérification publique — génération auto prévue en Phase 8
   signeParId     String
   signePar       User      @relation(fields: [signeParId], references: [id])
   dateSignature  DateTime  @default(now())
