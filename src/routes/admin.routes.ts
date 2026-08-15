@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import multer from "multer";
+import ExcelJS from "exceljs";
+import PDFDocument from "pdfkit";
 import { prisma } from "../prisma";
 import { authenticate } from "../middleware/authenticate";
 import { authorize, ROLES_ADMIN_TOUS } from "../middleware/authorize";
@@ -185,6 +187,168 @@ adminRouter.post("/demandes/:id/retourner", authorize(["SUPER_ADMIN"]), async (r
     data: { demandeId: demande.id, parUserId: req.user!.userId, action: "DEMANDE_COMPLEMENT", commentaire: req.body.commentaire },
   });
   res.json(updated);
+});
+
+/**
+ * Construit la clause WHERE Prisma commune aux deux formats d'export,
+ * à partir des filtres de la query string.
+ *
+ * Filtres disponibles : période (dateDebut/dateFin sur la date de
+ * soumission), type d'autorisation, statut, et établissement
+ * (recherche texte sur l'organisation du demandeur — c'est la donnée
+ * la plus proche de « région » actuellement collectée ; il n'existe
+ * pas de champ région dédié dans le modèle de données).
+ */
+function construireFiltresRapport(query: any) {
+  const where: any = {};
+  if (query.dateDebut || query.dateFin) {
+    where.dateSoumission = {};
+    if (query.dateDebut) where.dateSoumission.gte = new Date(String(query.dateDebut));
+    if (query.dateFin) where.dateSoumission.lte = new Date(String(query.dateFin));
+  }
+  if (query.typeAutorisationId) where.typeAutorisationId = String(query.typeAutorisationId);
+  if (query.statut) where.statut = String(query.statut);
+  if (query.etablissement) {
+    where.demandeur = { organisation: { contains: String(query.etablissement), mode: "insensitive" } };
+  }
+  return where;
+}
+
+async function recupererDonneesRapport(query: any) {
+  return prisma.demande.findMany({
+    where: construireFiltresRapport(query),
+    include: { typeAutorisation: true, demandeur: true },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+const STATUT_LABELS_RAPPORT: Record<string, string> = {
+  BROUILLON: "Brouillon",
+  SOUMISE: "Soumise",
+  EN_COURS: "En cours",
+  COMPLEMENT_REQUIS: "Complément requis",
+  APPROUVEE: "Approuvée",
+  REJETEE: "Rejetée",
+  EXPIREE: "Expirée",
+};
+
+/**
+ * Export Excel des dossiers, avec filtres (période / type / statut / établissement).
+ */
+adminRouter.get("/rapports/export.xlsx", async (req, res) => {
+  const demandes = await recupererDonneesRapport(req.query);
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "ARSN Sénégal";
+  workbook.created = new Date();
+  const sheet = workbook.addWorksheet("Dossiers");
+
+  sheet.columns = [
+    { header: "Numéro", key: "numero", width: 18 },
+    { header: "Type de demande", key: "type", width: 28 },
+    { header: "Demandeur", key: "demandeur", width: 24 },
+    { header: "Établissement", key: "etablissement", width: 26 },
+    { header: "Statut", key: "statut", width: 18 },
+    { header: "Date de soumission", key: "dateSoumission", width: 20 },
+    { header: "Date de décision", key: "dateDecision", width: 20 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1D3557" } };
+  sheet.getRow(1).eachCell((cell) => (cell.font = { bold: true, color: { argb: "FFFFFFFF" } }));
+
+  for (const d of demandes) {
+    sheet.addRow({
+      numero: d.numero,
+      type: d.typeAutorisation?.nom ?? "",
+      demandeur: `${d.demandeur?.prenom ?? ""} ${d.demandeur?.nom ?? ""}`.trim(),
+      etablissement: d.demandeur?.organisation ?? "",
+      statut: STATUT_LABELS_RAPPORT[d.statut] ?? d.statut,
+      dateSoumission: d.dateSoumission ? d.dateSoumission.toLocaleDateString("fr-FR") : "",
+      dateDecision: d.dateDecision ? d.dateDecision.toLocaleDateString("fr-FR") : "",
+    });
+  }
+
+  await enregistrerAudit({ userId: req.user!.userId, action: "EXPORT_RAPPORT_XLSX", entite: "Demande" });
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="rapport-arsn-${Date.now()}.xlsx"`);
+  await workbook.xlsx.write(res);
+  res.end();
+});
+
+/**
+ * Export PDF des dossiers, mêmes filtres que l'export Excel.
+ */
+adminRouter.get("/rapports/export.pdf", async (req, res) => {
+  const demandes = await recupererDonneesRapport(req.query);
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="rapport-arsn-${Date.now()}.pdf"`);
+
+  const doc = new PDFDocument({ margin: 40, size: "A4", layout: "landscape" });
+  doc.pipe(res);
+
+  doc.fontSize(16).font("Helvetica-Bold").text("ARSN Sénégal — Rapport des dossiers", { align: "left" });
+  doc.fontSize(9).font("Helvetica").fillColor("#555").text(`Généré le ${new Date().toLocaleString("fr-FR")}`);
+  doc.moveDown(1);
+
+  const colonnes = [
+    { label: "Numéro", width: 90 },
+    { label: "Type", width: 150 },
+    { label: "Demandeur", width: 130 },
+    { label: "Établissement", width: 140 },
+    { label: "Statut", width: 100 },
+    { label: "Soumission", width: 80 },
+    { label: "Décision", width: 80 },
+  ];
+  const startX = doc.page.margins.left;
+  let y = doc.y;
+
+  function dessinerEnTete() {
+    let x = startX;
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#fff");
+    doc.rect(startX, y, colonnes.reduce((s, c) => s + c.width, 0), 20).fill("#1D3557");
+    doc.fillColor("#fff");
+    for (const col of colonnes) {
+      doc.text(col.label, x + 4, y + 6, { width: col.width - 8 });
+      x += col.width;
+    }
+    y += 22;
+  }
+
+  dessinerEnTete();
+  doc.font("Helvetica").fontSize(8.5).fillColor("#000");
+
+  for (const d of demandes) {
+    if (y > doc.page.height - doc.page.margins.bottom - 30) {
+      doc.addPage();
+      y = doc.page.margins.top;
+      dessinerEnTete();
+      doc.font("Helvetica").fontSize(8.5).fillColor("#000");
+    }
+    const valeurs = [
+      d.numero,
+      d.typeAutorisation?.nom ?? "",
+      `${d.demandeur?.prenom ?? ""} ${d.demandeur?.nom ?? ""}`.trim(),
+      d.demandeur?.organisation ?? "",
+      STATUT_LABELS_RAPPORT[d.statut] ?? d.statut,
+      d.dateSoumission ? d.dateSoumission.toLocaleDateString("fr-FR") : "—",
+      d.dateDecision ? d.dateDecision.toLocaleDateString("fr-FR") : "—",
+    ];
+    let x = startX;
+    valeurs.forEach((val, i) => {
+      doc.text(val, x + 4, y + 4, { width: colonnes[i].width - 8 });
+      x += colonnes[i].width;
+    });
+    y += 18;
+  }
+
+  if (demandes.length === 0) {
+    doc.text("Aucun dossier ne correspond à ces filtres.", startX, y + 10);
+  }
+
+  await enregistrerAudit({ userId: req.user!.userId, action: "EXPORT_RAPPORT_PDF", entite: "Demande" });
+  doc.end();
 });
 
 /**
