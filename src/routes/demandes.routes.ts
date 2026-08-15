@@ -233,7 +233,11 @@ demandesRouter.get("/:id/pieces/:pieceId/telecharger", async (req, res) => {
   const piece = await prisma.pieceJustificative.findUnique({ where: { id: req.params.pieceId } });
   if (!piece || piece.demandeId !== demande.id) return res.status(404).json({ erreur: "Pièce introuvable." });
 
-  res.download(path.resolve(piece.cheminStockage), piece.nomFichier);
+  res.download(path.resolve(piece.cheminStockage), piece.nomFichier, (err) => {
+    if (err && !res.headersSent) {
+      res.status(404).json({ erreur: "Ce fichier n'est plus disponible sur le serveur." });
+    }
+  });
 });
 
 /**
@@ -249,7 +253,11 @@ demandesRouter.get("/:id/attestation", async (req, res) => {
   const autorisation = await prisma.autorisationDelivree.findUnique({ where: { demandeId: demande.id } });
   if (!autorisation) return res.status(404).json({ erreur: "Aucune attestation disponible pour ce dossier." });
 
-  res.download(path.resolve(autorisation.pdfCheminStockage), autorisation.pdfNomFichier || "attestation.pdf");
+  res.download(path.resolve(autorisation.pdfCheminStockage), autorisation.pdfNomFichier || "attestation.pdf", (err) => {
+    if (err && !res.headersSent) {
+      res.status(404).json({ erreur: "Ce fichier n'est plus disponible sur le serveur." });
+    }
+  });
 });
 
 /**

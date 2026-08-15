@@ -7,7 +7,7 @@ import { seedDatabase } from "../prisma/seed";
 import { authRouter } from "./routes/auth.routes";
 import { demandesRouter } from "./routes/demandes.routes";
 import { adminRouter } from "./routes/admin.routes";
-import { typesPublicRouter } from "./routes/types-public.routes";
+import { typesPublicRouter, statsPublicRouter } from "./routes/types-public.routes";
 
 const app = express();
 
@@ -22,7 +22,7 @@ const allowedOrigins = (process.env.CORS_ORIGIN || "")
   .filter(Boolean);
 
 const corsOptions = isDevelopment
-  ? { origin: true, credentials: true }
+  ? { origin: true, credentials: true, exposedHeaders: ["Content-Disposition"] }
   : {
       origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
         if (!origin) {
@@ -36,6 +36,7 @@ const corsOptions = isDevelopment
         }
       },
       credentials: true,
+      exposedHeaders: ["Content-Disposition"],
     };
 
 app.use(cors(corsOptions));
@@ -47,6 +48,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/demandes", demandesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/types-autorisation", typesPublicRouter);
+app.use("/api/stats-publiques", statsPublicRouter);
 
 // Gestion générique des erreurs non interceptées
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
