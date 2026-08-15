@@ -44,6 +44,7 @@ app.use(express.json({ limit: "5mb" }));
 
 app.get("/api/health", (_req, res) => res.json({ statut: "ok" }));
 
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/demandes", demandesRouter);
 app.use("/api/admin", adminRouter);
