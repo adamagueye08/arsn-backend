@@ -202,9 +202,9 @@ adminRouter.post("/demandes/:id/retourner", authorize(["SUPER_ADMIN"]), async (r
 function construireFiltresRapport(query: any) {
   const where: any = {};
   if (query.dateDebut || query.dateFin) {
-    where.dateSoumission = {};
-    if (query.dateDebut) where.dateSoumission.gte = new Date(String(query.dateDebut));
-    if (query.dateFin) where.dateSoumission.lte = new Date(String(query.dateFin));
+    where.dateDepot = {};
+    if (query.dateDebut) where.dateDepot.gte = new Date(String(query.dateDebut));
+    if (query.dateFin) where.dateDepot.lte = new Date(String(query.dateFin));
   }
   if (query.typeAutorisationId) where.typeAutorisationId = String(query.typeAutorisationId);
   if (query.statut) where.statut = String(query.statut);
@@ -263,7 +263,7 @@ adminRouter.get("/rapports/export.xlsx", async (req, res) => {
       demandeur: `${d.demandeur?.prenom ?? ""} ${d.demandeur?.nom ?? ""}`.trim(),
       etablissement: d.demandeur?.organisation ?? "",
       statut: STATUT_LABELS_RAPPORT[d.statut] ?? d.statut,
-      dateSoumission: d.dateSoumission ? d.dateSoumission.toLocaleDateString("fr-FR") : "",
+      dateSoumission: d.dateDepot ? d.dateDepot.toLocaleDateString("fr-FR") : "",
       dateDecision: d.dateDecision ? d.dateDecision.toLocaleDateString("fr-FR") : "",
     });
   }
@@ -332,7 +332,7 @@ adminRouter.get("/rapports/export.pdf", async (req, res) => {
       `${d.demandeur?.prenom ?? ""} ${d.demandeur?.nom ?? ""}`.trim(),
       d.demandeur?.organisation ?? "",
       STATUT_LABELS_RAPPORT[d.statut] ?? d.statut,
-      d.dateSoumission ? d.dateSoumission.toLocaleDateString("fr-FR") : "—",
+      d.dateDepot ? d.dateDepot.toLocaleDateString("fr-FR") : "—",
       d.dateDecision ? d.dateDecision.toLocaleDateString("fr-FR") : "—",
     ];
     let x = startX;
