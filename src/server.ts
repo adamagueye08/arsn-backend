@@ -12,6 +12,7 @@ import { authRouter } from "./routes/auth.routes";
 import { demandesRouter } from "./routes/demandes.routes";
 import { adminRouter } from "./routes/admin.routes";
 import { typesPublicRouter, statsPublicRouter } from "./routes/types-public.routes";
+import { contactPublicRouter } from "./routes/contact-public.routes";
 
 // Filet de sécurité supplémentaire : si une erreur échappe malgré tout au
 // mécanisme ci-dessus, on la journalise sans jamais faire planter le
@@ -64,6 +65,7 @@ app.use("/api/demandes", demandesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/types-autorisation", typesPublicRouter);
 app.use("/api/stats-publiques", statsPublicRouter);
+app.use("/api/contact", contactPublicRouter);
 
 // Gestion générique des erreurs non interceptées
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

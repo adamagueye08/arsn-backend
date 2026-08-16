@@ -389,6 +389,22 @@ adminRouter.get("/rapports/export.pdf", async (req, res) => {
 /**
  * 1. Tableau de bord - statistiques
  */
+/**
+ * Messages reçus via le formulaire de contact public.
+ */
+adminRouter.get("/messages-contact", async (_req, res) => {
+  const messages = await prisma.messageContact.findMany({ orderBy: { createdAt: "desc" } });
+  res.json(messages);
+});
+
+adminRouter.patch("/messages-contact/:id/lu", async (req, res) => {
+  const message = await prisma.messageContact.update({
+    where: { id: req.params.id },
+    data: { lu: true },
+  });
+  res.json(message);
+});
+
 adminRouter.get("/dashboard", async (req, res) => {
   const [recues, enAttente, approuvees, rejetees, expirees, parTypeRaw, types, toutesDemandes] = await Promise.all([
     prisma.demande.count(),

@@ -249,3 +249,19 @@ model AuditLog {
   @@index([entite, entiteId])
   @@map("audit_logs")
 }
+
+// ------------------------------------------------------------
+// Messages du formulaire de contact public (page /contact)
+// ------------------------------------------------------------
+model MessageContact {
+  id        String   @id @default(uuid())
+  nom       String
+  email     String
+  telephone String?
+  sujet     String?
+  message   String
+  lu        Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("messages_contact")
+}
