@@ -1,5 +1,9 @@
 ﻿import "dotenv/config";
 import express from "express";
+import "express-async-errors"; // capture automatiquement les erreurs des routes async
+                                 // (Express 4 ne le fait pas nativement : une erreur non
+                                 // interceptée dans une route async plantait tout le
+                                 // processus au lieu de renvoyer une simple erreur 500)
 import cors from "cors";
 import helmet from "helmet";
 
@@ -8,6 +12,16 @@ import { authRouter } from "./routes/auth.routes";
 import { demandesRouter } from "./routes/demandes.routes";
 import { adminRouter } from "./routes/admin.routes";
 import { typesPublicRouter, statsPublicRouter } from "./routes/types-public.routes";
+
+// Filet de sécurité supplémentaire : si une erreur échappe malgré tout au
+// mécanisme ci-dessus, on la journalise sans jamais faire planter le
+// processus (mieux vaut une requête en erreur que tout le serveur hors service).
+process.on("unhandledRejection", (raison) => {
+  console.error("⚠️ Unhandled Rejection (processus maintenu en vie) :", raison);
+});
+process.on("uncaughtException", (err) => {
+  console.error("⚠️ Uncaught Exception (processus maintenu en vie) :", err);
+});
 
 const app = express();
 

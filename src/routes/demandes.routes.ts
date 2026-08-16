@@ -34,19 +34,32 @@ demandesRouter.post("/", async (req, res) => {
   });
   if (!typeAutorisation) return res.status(404).json({ erreur: "Type d'autorisation introuvable." });
 
-  const compteurAnnuel = (await prisma.demande.count()) + 1;
+  // Le numéro de dossier est unique, et deux requêtes proches (double-clic,
+  // nouvelle tentative réseau) peuvent en générer un identique si elles
+  // comptent au même instant. On retente avec un compteur actualisé plutôt
+  // que de laisser l'erreur de contrainte unique remonter telle quelle.
+  let demande;
+  for (let essai = 0; essai < 5; essai++) {
+    const compteurAnnuel = (await prisma.demande.count()) + 1 + essai;
+    try {
+      demande = await prisma.demande.create({
+        data: {
+          numero: genererNumeroDemande(compteurAnnuel),
+          demandeurId: req.user!.userId,
+          typeAutorisationId: parsed.data.typeAutorisationId,
+          donnees: parsed.data.donnees,
+          statut: "BROUILLON",
+        },
+      });
+      break;
+    } catch (err: any) {
+      const estCollisionNumero = err?.code === "P2002" && err?.meta?.target?.includes?.("numero");
+      if (!estCollisionNumero || essai === 4) throw err;
+      // sinon : on boucle et on retente avec un compteur actualisé
+    }
+  }
 
-  const demande = await prisma.demande.create({
-    data: {
-      numero: genererNumeroDemande(compteurAnnuel),
-      demandeurId: req.user!.userId,
-      typeAutorisationId: parsed.data.typeAutorisationId,
-      donnees: parsed.data.donnees,
-      statut: "BROUILLON",
-    },
-  });
-
-  await enregistrerAudit({ userId: req.user!.userId, action: "CREATION_BROUILLON", entite: "Demande", entiteId: demande.id });
+  await enregistrerAudit({ userId: req.user!.userId, action: "CREATION_BROUILLON", entite: "Demande", entiteId: demande!.id });
   res.status(201).json(demande);
 });
 
