@@ -235,6 +235,41 @@ const STATUT_LABELS_RAPPORT: Record<string, string> = {
 /**
  * Export Excel des dossiers, avec filtres (période / type / statut / établissement).
  */
+/**
+ * Statistiques agrégées pour les graphiques du rapport — mêmes filtres
+ * que les exports, mais renvoie des totaux plutôt que la liste brute.
+ */
+adminRouter.get("/rapports/stats", async (req, res) => {
+  const demandes = await recupererDonneesRapport(req.query);
+
+  const parStatut: Record<string, number> = {};
+  const parType: Record<string, number> = {};
+  const parMois: Record<string, number> = {};
+
+  for (const d of demandes) {
+    parStatut[d.statut] = (parStatut[d.statut] ?? 0) + 1;
+    const nomType = d.typeAutorisation?.nom ?? "Inconnu";
+    parType[nomType] = (parType[nomType] ?? 0) + 1;
+    if (d.dateDepot) {
+      const cle = `${d.dateDepot.getFullYear()}-${String(d.dateDepot.getMonth() + 1).padStart(2, "0")}`;
+      parMois[cle] = (parMois[cle] ?? 0) + 1;
+    }
+  }
+
+  res.json({
+    total: demandes.length,
+    parStatut: Object.entries(parStatut).map(([statut, count]) => ({
+      statut,
+      label: STATUT_LABELS_RAPPORT[statut] ?? statut,
+      count,
+    })),
+    parType: Object.entries(parType).map(([type, count]) => ({ type, count })),
+    parMois: Object.entries(parMois)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([mois, count]) => ({ mois, count })),
+  });
+});
+
 adminRouter.get("/rapports/export.xlsx", async (req, res) => {
   const demandes = await recupererDonneesRapport(req.query);
 
