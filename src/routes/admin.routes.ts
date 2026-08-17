@@ -305,6 +305,63 @@ adminRouter.get("/rapports/export.xlsx", async (req, res) => {
 
   await enregistrerAudit({ userId: req.user!.userId, action: "EXPORT_RAPPORT_XLSX", entite: "Demande" });
 
+  // Feuille "Synthèse" : données déjà agrégées, prêtes à sélectionner
+  // pour insérer un graphique natif dans Excel (Insertion > Graphique).
+  // ExcelJS ne permet pas de créer un graphique intégré directement.
+  const stats = agregerStatsRapport(demandes);
+  const synthese = workbook.addWorksheet("Synthèse");
+
+  function ecrireTableauSynthese(titre: string, entetes: string[], lignes: (string | number)[][], colonneDepart: number) {
+    const ligneTitre = synthese.getRow(1);
+    ligneTitre.getCell(colonneDepart).value = titre;
+    ligneTitre.getCell(colonneDepart).font = { bold: true, size: 12, color: { argb: "FF1D3557" } };
+
+    const ligneEntete = synthese.getRow(2);
+    entetes.forEach((h, i) => {
+      const cell = ligneEntete.getCell(colonneDepart + i);
+      cell.value = h;
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1D3557" } };
+    });
+
+    lignes.forEach((ligneVals, i) => {
+      const ligne = synthese.getRow(3 + i);
+      ligneVals.forEach((val, j) => {
+        ligne.getCell(colonneDepart + j).value = val;
+      });
+    });
+  }
+
+  ecrireTableauSynthese(
+    "Dossiers par statut",
+    ["Statut", "Nombre"],
+    stats.parStatut.map((s) => [s.label, s.count]),
+    1
+  );
+  ecrireTableauSynthese(
+    "Répartition par type",
+    ["Type", "Nombre"],
+    stats.parType.map((t) => [t.type, t.count]),
+    4
+  );
+  ecrireTableauSynthese(
+    "Évolution mensuelle",
+    ["Mois", "Dossiers déposés"],
+    stats.parMois.map((m) => [m.mois, m.count]),
+    7
+  );
+
+  synthese.getColumn(1).width = 22;
+  synthese.getColumn(2).width = 12;
+  synthese.getColumn(4).width = 26;
+  synthese.getColumn(5).width = 12;
+  synthese.getColumn(7).width = 14;
+  synthese.getColumn(8).width = 18;
+
+  synthese.getCell("A20").value =
+    "Pour créer un graphique : sélectionnez un tableau ci-dessus, puis Insertion > Graphique recommandé.";
+  synthese.getCell("A20").font = { italic: true, size: 9, color: { argb: "FF555555" } };
+
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", `attachment; filename="rapport-arsn-${Date.now()}.xlsx"`);
   await workbook.xlsx.write(res);
