@@ -232,16 +232,7 @@ const STATUT_LABELS_RAPPORT: Record<string, string> = {
   EXPIREE: "Expirée",
 };
 
-/**
- * Export Excel des dossiers, avec filtres (période / type / statut / établissement).
- */
-/**
- * Statistiques agrégées pour les graphiques du rapport — mêmes filtres
- * que les exports, mais renvoie des totaux plutôt que la liste brute.
- */
-adminRouter.get("/rapports/stats", async (req, res) => {
-  const demandes = await recupererDonneesRapport(req.query);
-
+function agregerStatsRapport(demandes: Awaited<ReturnType<typeof recupererDonneesRapport>>) {
   const parStatut: Record<string, number> = {};
   const parType: Record<string, number> = {};
   const parMois: Record<string, number> = {};
@@ -256,7 +247,7 @@ adminRouter.get("/rapports/stats", async (req, res) => {
     }
   }
 
-  res.json({
+  return {
     total: demandes.length,
     parStatut: Object.entries(parStatut).map(([statut, count]) => ({
       statut,
@@ -267,7 +258,16 @@ adminRouter.get("/rapports/stats", async (req, res) => {
     parMois: Object.entries(parMois)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([mois, count]) => ({ mois, count })),
-  });
+  };
+}
+
+/**
+ * Statistiques agrégées pour les graphiques du rapport — mêmes filtres
+ * que les exports, mais renvoie des totaux plutôt que la liste brute.
+ */
+adminRouter.get("/rapports/stats", async (req, res) => {
+  const demandes = await recupererDonneesRapport(req.query);
+  res.json(agregerStatsRapport(demandes));
 });
 
 adminRouter.get("/rapports/export.xlsx", async (req, res) => {
@@ -314,6 +314,56 @@ adminRouter.get("/rapports/export.xlsx", async (req, res) => {
 /**
  * Export PDF des dossiers, mêmes filtres que l'export Excel.
  */
+const COULEURS_PDF = ["#1D3557", "#2A9D8F", "#E9C46A", "#E76F51", "#457B9D", "#A8DADC", "#8D99AE"];
+
+function dessinerBarresPdf(
+  doc: PDFKit.PDFDocument,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  data: { label: string; count: number }[]
+) {
+  if (data.length === 0) return;
+  const max = Math.max(1, ...data.map((d) => d.count));
+  const gap = 10;
+  const barWidth = (width - gap * (data.length - 1)) / data.length;
+  data.forEach((d, i) => {
+    const barHeight = (d.count / max) * height;
+    const bx = x + i * (barWidth + gap);
+    const by = y + height - barHeight;
+    doc.rect(bx, by, barWidth, Math.max(1, barHeight)).fill(COULEURS_PDF[i % COULEURS_PDF.length]);
+    doc.fontSize(7).fillColor("#000").text(String(d.count), bx, by - 10, { width: barWidth, align: "center" });
+    doc
+      .fontSize(6)
+      .fillColor("#555")
+      .text(d.label, bx - 8, y + height + 4, { width: barWidth + 16, align: "center" });
+  });
+}
+
+function dessinerCamembertPdf(
+  doc: PDFKit.PDFDocument,
+  cx: number,
+  cy: number,
+  rayon: number,
+  data: { type: string; count: number }[]
+) {
+  const total = data.reduce((s, d) => s + d.count, 0) || 1;
+  let angleDebut = -Math.PI / 2;
+  data.forEach((d, i) => {
+    const angleSlice = (d.count / total) * Math.PI * 2;
+    const angleFin = angleDebut + angleSlice;
+    const nbSegments = Math.max(2, Math.ceil((angleSlice / (Math.PI * 2)) * 60));
+    const points: [number, number][] = [[cx, cy]];
+    for (let s = 0; s <= nbSegments; s++) {
+      const a = angleDebut + (angleSlice * s) / nbSegments;
+      points.push([cx + rayon * Math.cos(a), cy + rayon * Math.sin(a)]);
+    }
+    doc.polygon(...points).fill(COULEURS_PDF[i % COULEURS_PDF.length]);
+    angleDebut = angleFin;
+  });
+}
+
 adminRouter.get("/rapports/export.pdf", async (req, res) => {
   const demandes = await recupererDonneesRapport(req.query);
 
@@ -326,6 +376,34 @@ adminRouter.get("/rapports/export.pdf", async (req, res) => {
   doc.fontSize(16).font("Helvetica-Bold").text("ARSN Sénégal — Rapport des dossiers", { align: "left" });
   doc.fontSize(9).font("Helvetica").fillColor("#555").text(`Généré le ${new Date().toLocaleString("fr-FR")}`);
   doc.moveDown(1);
+
+  const stats = agregerStatsRapport(demandes);
+  if (stats.total > 0) {
+    const zoneY = doc.y;
+    const zoneHauteur = 150;
+
+    // Graphique en barres — dossiers par statut (moitié gauche)
+    doc.fontSize(10).font("Helvetica-Bold").fillColor("#000").text("Dossiers par statut", doc.page.margins.left, zoneY);
+    dessinerBarresPdf(doc, doc.page.margins.left, zoneY + 20, 330, 90, stats.parStatut);
+
+    // Camembert — répartition par type (moitié droite) + légende
+    const camembertCx = doc.page.margins.left + 480;
+    const camembertCy = zoneY + 65;
+    doc.fontSize(10).font("Helvetica-Bold").text("Répartition par type", camembertCx - 70, zoneY);
+    dessinerCamembertPdf(doc, camembertCx, camembertCy, 55, stats.parType);
+
+    let legendeY = zoneY + 20;
+    const legendeX = camembertCx + 75;
+    doc.font("Helvetica").fontSize(7.5);
+    stats.parType.forEach((t, i) => {
+      doc.rect(legendeX, legendeY, 8, 8).fill(COULEURS_PDF[i % COULEURS_PDF.length]);
+      doc.fillColor("#000").text(`${t.type} (${t.count})`, legendeX + 12, legendeY, { width: 140 });
+      legendeY += 14;
+    });
+
+    doc.y = zoneY + zoneHauteur;
+    doc.moveDown(0.5);
+  }
 
   const colonnes = [
     { label: "Numéro", width: 90 },
